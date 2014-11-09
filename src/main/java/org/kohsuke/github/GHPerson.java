@@ -26,6 +26,8 @@ public abstract class GHPerson {
     protected String html_url;
     protected int followers,following,public_repos,public_gists;
 
+    	private static final int PAGE_SIZE=30;
+    	
     /*package*/ GHPerson wrapUp(GitHub root) {
         this.root = root;
         return this;
@@ -56,14 +58,46 @@ public abstract class GHPerson {
         }
         return Collections.unmodifiableMap(repositories);
     }
+    
+    /**
+     * Gets the public repositories this user watches.
+     *
+     * <p>
+     * To list your own watched repositories, including private repositories,
+     * use {@link GHMyself#listRepositories()}
+     */
+    public synchronized Map<String,GHRepository> getWatchedRepositories() throws IOException {
+        Map<String,GHRepository> repositories = new TreeMap<String, GHRepository>();
+        for (GHRepository r : listRepositories(30, GHRepoActivity.WATCH)) {
+            repositories.put(r.getName(),r);
+        }
+        return Collections.unmodifiableMap(repositories);
+    }
+    
+    
+    /**
+     * Gets the public repositories this user has starred.
+     *
+     * <p>
+     * To list your own starred repositories, including private repositories,
+     * use {@link GHMyself#listRepositories()}
+     */
+    public synchronized Map<String,GHRepository> getStarredRepositories() throws IOException {
+        Map<String,GHRepository> repositories = new TreeMap<String, GHRepository>();
+        for (GHRepository r : listRepositories(PAGE_SIZE, GHRepoActivity.STAR)) {
+            repositories.put(r.getName(),r);
+        }
+        return Collections.unmodifiableMap(repositories);
+    }
 
     /**
-     * Lists up all the repositories using a 30 items page size.
+     * Lists up all the repositories using a this.pageSize=30 items page size.
      *
      * Unlike {@link #getRepositories()}, this does not wait until all the repositories are returned.
+     * @param typeOfActivity 
      */
     public PagedIterable<GHRepository> listRepositories() {
-      return listRepositories(30);
+      return listRepositories(PAGE_SIZE);
     }
 
     /**
@@ -74,9 +108,20 @@ public abstract class GHPerson {
      * Unlike {@link #getRepositories()}, this does not wait until all the repositories are returned.
      */
     public PagedIterable<GHRepository> listRepositories(final int pageSize) {
+    		return listRepositories(pageSize, GHRepoActivity.REPO);
+    }
+    
+    /**
+     * Lists up all the repositories using the specified page size.
+     *
+     * @param pageSize size for each page of items returned by GitHub. Maximum page size is 100.
+     *
+     * Unlike {@link #getRepositories()}, this does not wait until all the repositories are returned.
+     */
+    public PagedIterable<GHRepository> listRepositories(final int pageSize, final GHRepoActivity typeOfActivity) {
         return new PagedIterable<GHRepository>() {
             public PagedIterator<GHRepository> iterator() {
-                return new PagedIterator<GHRepository>(root.retrieve().asIterator("/users/" + login + "/repos?per_page=" + pageSize, GHRepository[].class)) {
+                return new PagedIterator<GHRepository>(root.retrieve().asIterator("/users/" + login + "/"+typeOfActivity.toString()+"?per_page=" + pageSize, GHRepository[].class)) {
                     @Override
                     protected void wrapUp(GHRepository[] page) {
                         for (GHRepository c : page)

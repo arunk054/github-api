@@ -1006,4 +1006,31 @@ public class GHRepository {
     String getApiTailUrl(String tail) {
         return "/repos/" + owner.login + "/" + name +'/'+tail;
     }
+    
+    
+//    /**
+//     * Gets the list of users who watch this repository.
+//     *
+//     */
+//    public synchronized Map<String,GHRepository> getWatchers() throws IOException {
+//        Map<String,GHRepository> repositories = new TreeMap<String, GHRepository>();
+//        for (GHRepository r : listRepositories(GHRepoActivity.WATCH)) {
+//            repositories.put(r.getName(),r);
+//        }
+//        return Collections.unmodifiableMap(repositories);
+//    }
+//    
+//    /**
+//     * Gets the list of users who have starred this repository. 
+//     *
+//     */
+//    public synchronized Map<String,GHRepository> getStargazers() throws IOException {
+//        Map<String,GHRepository> repositories = new TreeMap<String, GHRepository>();
+//        for (GHRepository r : listRepositories(GHRepoActivity.STAR)) {
+//            repositories.put(r.getName(),r);
+//        }
+//        return Collections.unmodifiableMap(repositories);
+//    }
+    
+    
 }

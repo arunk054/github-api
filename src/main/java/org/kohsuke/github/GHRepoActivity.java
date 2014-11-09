@@ -7,9 +7,9 @@ package org.kohsuke.github;
  */
 
 public enum GHRepoActivity {
-	REPO ("repo"),
+	REPO ("repos"),
 	STAR ("starred"),
-	WATCH ("subscribers");
+	WATCH ("subscriptions");
 	
 	private final String text;
 
