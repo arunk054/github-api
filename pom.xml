@@ -3,11 +3,11 @@
   <parent>
     <groupId>org.kohsuke</groupId>
     <artifactId>pom</artifactId>
-    <version>10</version>
+    <version>14</version>
   </parent>
 
   <artifactId>github-api</artifactId>
-  <version>1.60-SNAPSHOT</version>
+  <version>1.73-SNAPSHOT</version>
   <name>GitHub API for Java</name>
   <url>http://github-api.kohsuke.org/</url>
   <description>GitHub API for Java</description>
@@ -28,6 +28,8 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <findbugs-maven-plugin.version>3.0.2</findbugs-maven-plugin.version>
+    <findbugs-maven-plugin.failOnError>true</findbugs-maven-plugin.failOnError>
   </properties>
 
   <build>
@@ -35,11 +37,29 @@
       <plugin>
         <groupId>com.infradna.tool</groupId>
         <artifactId>bridge-method-injector</artifactId>
-        <version>1.12</version>
+        <version>1.14</version>
         <executions>
           <execution>
             <goals>
               <goal>process</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <version>${findbugs-maven-plugin.version}</version>
+        <configuration>
+          <xmlOutput>true</xmlOutput>
+          <failOnError>${findbugs-maven-plugin.failOnError}</failOnError>
+        </configuration>
+        <executions>
+          <execution>
+            <id>run-findbugs</id>
+            <phase>verify</phase> 
+            <goals>
+              <goal>check</goal> 
             </goals>
           </execution>
         </executions>
@@ -77,7 +97,7 @@
     <dependency>
       <groupId>com.infradna.tool</groupId>
       <artifactId>bridge-method-annotation</artifactId>
-      <version>1.12</version>
+      <version>1.14</version>
     </dependency>
     <dependency>
       <groupId>org.kohsuke.stapler</groupId>
@@ -107,6 +127,13 @@
       <groupId>org.mockito</groupId>
       <artifactId>mockito-all</artifactId>
       <version>1.9.5</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.findbugs</groupId>
+      <artifactId>annotations</artifactId>
+      <version>3.0.0</version>
+      <scope>provided</scope>
     </dependency>
   </dependencies>
   <repositories>
@@ -138,4 +165,12 @@
       <distribution>repo</distribution>
     </license>
   </licenses>
+
+  <mailingLists>
+    <mailingList>
+      <name>User List</name>
+      <post>github-api@googlegroups.com</post>
+      <archive>https://groups.google.com/forum/#!forum/github-api</archive>
+    </mailingList>
+  </mailingLists>
 </project>

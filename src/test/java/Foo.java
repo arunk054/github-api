@@ -1,23 +1,25 @@
-import org.kohsuke.github.GHOrganization;
-import org.kohsuke.github.GHTeam;
+import org.kohsuke.github.GHRepository;
+import org.kohsuke.github.GHUser;
 import org.kohsuke.github.GitHub;
 
-import java.util.Arrays;
-import java.util.Map;
+import java.util.Collection;
 
 /**
  * @author Kohsuke Kawaguchi
  */
 public class Foo {
     public static void main(String[] args) throws Exception {
-        GHOrganization org = GitHub.connect().getOrganization("jenkinsci");
-        Map<String, GHTeam> teams = org.getTeams();
-        System.out.println(teams.size());
-
-        int sz = 0;
-        for (GHTeam t : org.listTeams()) {
-            sz++;
+        Collection<GHRepository> lst = GitHub.connect().getUser("kohsuke").getRepositories().values();
+        for (GHRepository r : lst) {
+            System.out.println(r.getName());
         }
-        System.out.println(sz);
+        System.out.println(lst.size());
+    }
+
+    private static void testRateLimit() throws Exception {
+        GitHub g = GitHub.connectAnonymously();
+        for (GHUser u : g.getOrganization("jenkinsci").listMembers()) {
+            u.getFollowersCount();
+        }
     }
 }

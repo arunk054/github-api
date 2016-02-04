@@ -1,8 +1,7 @@
 package org.kohsuke.github;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -51,8 +50,21 @@ public class GHTeam {
     /**
      * Retrieves the current members.
      */
+    public PagedIterable<GHUser> listMembers() throws IOException {
+        return new PagedIterable<GHUser>() {
+            public PagedIterator<GHUser> _iterator(int pageSize) {
+                return new PagedIterator<GHUser>(org.root.retrieve().asIterator(api("/members"), GHUser[].class, pageSize)) {
+                    @Override
+                    protected void wrapUp(GHUser[] page) {
+                        GHUser.wrap(page, org.root);
+                    }
+                };
+            }
+        };
+    }
+
     public Set<GHUser> getMembers() throws IOException {
-        return new HashSet<GHUser>(Arrays.asList(GHUser.wrap(org.root.retrieve().to(api("/members"), GHUser[].class), org.root)));
+        return Collections.unmodifiableSet(listMembers().asSet());
     }
 
     /**
@@ -68,12 +80,25 @@ public class GHTeam {
     }
 
     public Map<String,GHRepository> getRepositories() throws IOException {
-        GHRepository[] repos = org.root.retrieve().to(api("/repos"), GHRepository[].class);
         Map<String,GHRepository> m = new TreeMap<String, GHRepository>();
-        for (GHRepository r : repos) {
-            m.put(r.getName(),r.wrap(org.root));
+        for (GHRepository r : listRepositories()) {
+            m.put(r.getName(), r);
         }
         return m;
+    }
+
+    public PagedIterable<GHRepository> listRepositories() {
+        return new PagedIterable<GHRepository>() {
+            public PagedIterator<GHRepository> _iterator(int pageSize) {
+                return new PagedIterator<GHRepository>(org.root.retrieve().asIterator(api("/repos"), GHRepository[].class, pageSize)) {
+                    @Override
+                    protected void wrapUp(GHRepository[] page) {
+                        for (GHRepository r : page)
+                            r.wrap(org.root);
+                    }
+                };
+            }
+        };
     }
 
     /**

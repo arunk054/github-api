@@ -24,6 +24,9 @@
 
 package org.kohsuke.github;
 
+import com.infradna.tool.bridge_method_injector.WithBridgeMethods;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
 import java.io.IOException;
 import java.net.URL;
 import java.util.Collection;
@@ -37,52 +40,46 @@ import java.util.Locale;
  *
  * @author Eric Maupin
  * @author Kohsuke Kawaguchi
+ * @see GHRepository#getIssue(int)
+ * @see GitHub#searchIssues()
+ * @see GHIssueSearchBuilder
  */
-public class GHIssue {
+public class GHIssue extends GHObject {
     GitHub root;
     GHRepository owner;
-	
-	// API v3
+    
+    // API v3
     protected GHUser assignee;
     protected String state;
     protected int number;
     protected String closed_at;
     protected int comments;
     protected String body;
+    // for backward compatibility with < 1.63, this collection needs to hold instances of Label, not GHLabel
     protected List<Label> labels;
     protected GHUser user;
-    protected String title, created_at, html_url;
+    protected String title, html_url;
     protected GHIssue.PullRequest pull_request;
     protected GHMilestone milestone;
-	protected String url, updated_at;
-    protected int id;
     protected GHUser closed_by;
 
-    public static class Label {
-        private String url;
-        private String name;
-        private String color;
-		
-        public String getUrl() {
-			return url;
-		}
-		
-        public String getName() {
-			return name;
-		}
-		
-        public String getColor() {
-			return color;
-		}
+    /**
+     * @deprecated use {@link GHLabel}
+     */
+    public static class Label extends GHLabel {
     }
     
     /*package*/ GHIssue wrap(GHRepository owner) {
         this.owner = owner;
-        this.root = owner.root;
-		if(milestone != null) milestone.wrap(owner);
-		if(assignee != null) assignee.wrapUp(root);
-		if(user != null) user.wrapUp(root);
-		if(closed_by != null) closed_by.wrapUp(root);
+        if(milestone != null) milestone.wrap(owner);
+        return wrap(owner.root);
+    }
+
+    /*package*/ GHIssue wrap(GitHub root) {
+        this.root = root;
+        if(assignee != null) assignee.wrapUp(root);
+        if(user != null) user.wrapUp(root);
+        if(closed_by != null) closed_by.wrapUp(root);
         return this;
     }
 
@@ -117,7 +114,7 @@ public class GHIssue {
      * The HTML page of this issue,
      * like https://github.com/jenkinsci/jenkins/issues/100
      */
-    public URL getUrl() {
+    public URL getHtmlUrl() {
         return GitHub.parseURL(html_url);
     }
 
@@ -129,34 +126,31 @@ public class GHIssue {
         return Enum.valueOf(GHIssueState.class, state.toUpperCase(Locale.ENGLISH));
     }
 
-    public Collection<Label> getLabels() throws IOException {
+    public Collection<GHLabel> getLabels() throws IOException {
         if(labels == null){
-            return Collections.EMPTY_LIST;
+            return Collections.emptyList();
         }
-        return Collections.unmodifiableList(labels);
-    }
-
-    public Date getCreatedAt() {
-        return GitHub.parseDate(created_at);
-    }
-
-    public Date getUpdatedAt() {
-        return GitHub.parseDate(updated_at);
+        return Collections.<GHLabel>unmodifiableList(labels);
     }
 
     public Date getClosedAt() {
         return GitHub.parseDate(closed_at);
     }
 
-	public URL getApiURL(){
+    public URL getApiURL(){
         return GitHub.parseURL(url);
-	}
+    }
 
     /**
      * Updates the issue by adding a comment.
+     *
+     * @return
+     *      Newly posted comment.
      */
-    public void comment(String message) throws IOException {
-        new Requester(root).with("body",message).to(getIssuesApiRoute() + "/comments");
+    @WithBridgeMethods(void.class)
+    public GHIssueComment comment(String message) throws IOException {
+        GHIssueComment r = new Requester(root).with("body",message).to(getIssuesApiRoute() + "/comments", GHIssueComment.class);
+        return r.wrapUp(this);
     }
 
     private void edit(String key, Object value) throws IOException {
@@ -190,7 +184,7 @@ public class GHIssue {
     }
 
     public void assignTo(GHUser user) throws IOException {
-        editIssue("assignee",user.getLogin());
+        editIssue("assignee", user.getLogin());
     }
 
     public void setLabels(String... labels) throws IOException {
@@ -199,20 +193,20 @@ public class GHIssue {
 
     /**
      * Obtains all the comments associated with this issue.
-	 * 
-	 * @see #listComments() 
+     * 
+     * @see #listComments() 
      */
-	public List<GHIssueComment> getComments() throws IOException {
-		return listComments().asList();
-	}
-	
-	/**
-	 * Obtains all the comments associated with this issue.
-	 */
+    public List<GHIssueComment> getComments() throws IOException {
+        return listComments().asList();
+    }
+    
+    /**
+     * Obtains all the comments associated with this issue.
+     */
     public PagedIterable<GHIssueComment> listComments() throws IOException {
         return new PagedIterable<GHIssueComment>() {
-            public PagedIterator<GHIssueComment> iterator() {
-                return new PagedIterator<GHIssueComment>(root.retrieve().asIterator(getIssuesApiRoute() + "/comments", GHIssueComment[].class)) {
+            public PagedIterator<GHIssueComment> _iterator(int pageSize) {
+                return new PagedIterator<GHIssueComment>(root.retrieve().asIterator(getIssuesApiRoute() + "/comments", GHIssueComment[].class, pageSize)) {
                     protected void wrapUp(GHIssueComment[] page) {
                         for (GHIssueComment c : page)
                             c.wrapUp(GHIssue.this);
@@ -230,50 +224,67 @@ public class GHIssue {
         return "/repos/"+owner.getOwnerName()+"/"+owner.getName()+"/issues/"+number;
     }
 
-	public GHUser getAssignee() {
-		return assignee;
-	}
-	
+    public GHUser getAssignee() {
+        return assignee;
+    }
+    
     /**
      * User who submitted the issue.
      */
-	public GHUser getUser() {
+    public GHUser getUser() {
         return user;
-	}
-	
-	public GHUser getClosedBy() {
-		if(!"closed".equals(state)) return null;
-		if(closed_by != null) return closed_by;
-		
-		//TODO closed_by = owner.getIssue(number).getClosed_by();
-		return closed_by;
-	}
-	
-	public int getCommentsCount(){
-		return comments;
-	}
+    }
 
-	public PullRequest getPullRequest() {
-		return pull_request;
-	}
+    /**
+     * Reports who has closed the issue.
+     *
+     * <p>
+     * Note that GitHub doesn't always seem to report this information
+     * even for an issue that's already closed. See
+     * https://github.com/kohsuke/github-api/issues/60.
+     */
+    public GHUser getClosedBy() {
+        if(!"closed".equals(state)) return null;
+        if(closed_by != null) return closed_by;
+        
+        //TODO closed_by = owner.getIssue(number).getClosed_by();
+        return closed_by;
+    }
+    
+    public int getCommentsCount(){
+        return comments;
+    }
 
-	public GHMilestone getMilestone() {
-		return milestone;
-	}
+    /**
+     * Returns non-null if this issue is a shadow of a pull request.
+     */
+    public PullRequest getPullRequest() {
+        return pull_request;
+    }
 
-	public static class PullRequest{
-		private String diff_url, patch_url, html_url;
-		
-		public URL getDiffUrl() {
-			return GitHub.parseURL(diff_url);
-		}
-		
-		public URL getPatchUrl() {
-			return GitHub.parseURL(patch_url);
-		}
-		
-		public URL getUrl() {
-			return GitHub.parseURL(html_url);
-		}
-	}
+    public boolean isPullRequest() {
+        return pull_request!=null;
+    }
+
+    public GHMilestone getMilestone() {
+        return milestone;
+    }
+
+    @SuppressFBWarnings(value = {"UWF_UNWRITTEN_PUBLIC_OR_PROTECTED_FIELD", "UWF_UNWRITTEN_FIELD"}, 
+        justification = "JSON API")
+    public static class PullRequest{
+        private String diff_url, patch_url, html_url;
+        
+        public URL getDiffUrl() {
+            return GitHub.parseURL(diff_url);
+        }
+        
+        public URL getPatchUrl() {
+            return GitHub.parseURL(patch_url);
+        }
+        
+        public URL getUrl() {
+            return GitHub.parseURL(html_url);
+        }
+    }
 }

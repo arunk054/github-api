@@ -1,10 +1,13 @@
 package org.kohsuke.github;
 
 import java.io.IOException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -26,7 +29,7 @@ public class GHOrganization extends GHPerson {
         GHTeam t = getTeams().get(team);
         if (t==null)
             throw new IllegalArgumentException("No such team: "+team);
-        return createRepository(name,description,homepage,t,isPublic);
+        return createRepository(name, description, homepage, t, isPublic);
     }
 
     public GHRepository createRepository(String name, String description, String homepage, GHTeam team, boolean isPublic) throws IOException {
@@ -54,8 +57,8 @@ public class GHOrganization extends GHPerson {
      */
     public PagedIterable<GHTeam> listTeams() throws IOException {
         return new PagedIterable<GHTeam>() {
-            public PagedIterator<GHTeam> iterator() {
-                return new PagedIterator<GHTeam>(root.retrieve().asIterator(String.format("/orgs/%s/teams", login), GHTeam[].class)) {
+            public PagedIterator<GHTeam> _iterator(int pageSize) {
+                return new PagedIterator<GHTeam>(root.retrieve().asIterator(String.format("/orgs/%s/teams", login), GHTeam[].class, pageSize)) {
                     @Override
                     protected void wrapUp(GHTeam[] page) {
                         for (GHTeam c : page)
@@ -147,9 +150,9 @@ public class GHOrganization extends GHPerson {
 
     private PagedIterable<GHUser> listMembers(final String suffix, final String filter) throws IOException {
         return new PagedIterable<GHUser>() {
-            public PagedIterator<GHUser> iterator() {
+            public PagedIterator<GHUser> _iterator(int pageSize) {
                 String filterParams = (filter == null) ? "" : ("?filter=" + filter);
-                return new PagedIterator<GHUser>(root.retrieve().asIterator(String.format("/orgs/%s/%s%s", login, suffix, filterParams), GHUser[].class)) {
+                return new PagedIterator<GHUser>(root.retrieve().asIterator(String.format("/orgs/%s/%s%s", login, suffix, filterParams), GHUser[].class, pageSize)) {
                     @Override
                     protected void wrapUp(GHUser[] users) {
                         GHUser.wrap(users, root);
@@ -172,7 +175,7 @@ public class GHOrganization extends GHPerson {
      * Creates a new team and assigns the repositories.
      */
     public GHTeam createTeam(String name, Permission p, Collection<GHRepository> repositories) throws IOException {
-        Requester post = new Requester(root).with("name", name).with("permission", p.name().toLowerCase());
+        Requester post = new Requester(root).with("name", name).with("permission", p);
         List<String> repo_names = new ArrayList<String>();
         for (GHRepository r : repositories) {
             repo_names.add(r.getName());
@@ -219,8 +222,8 @@ public class GHOrganization extends GHPerson {
      */
     public PagedIterable<GHEventInfo> listEvents() throws IOException {
         return new PagedIterable<GHEventInfo>() {
-            public PagedIterator<GHEventInfo> iterator() {
-                return new PagedIterator<GHEventInfo>(root.retrieve().asIterator(String.format("/orgs/%s/events", login), GHEventInfo[].class)) {
+            public PagedIterator<GHEventInfo> _iterator(int pageSize) {
+                return new PagedIterator<GHEventInfo>(root.retrieve().asIterator(String.format("/orgs/%s/events", login), GHEventInfo[].class, pageSize)) {
                     @Override
                     protected void wrapUp(GHEventInfo[] page) {
                         for (GHEventInfo c : page)
@@ -241,8 +244,8 @@ public class GHOrganization extends GHPerson {
     @Override
     public PagedIterable<GHRepository> listRepositories(final int pageSize) {
         return new PagedIterable<GHRepository>() {
-            public PagedIterator<GHRepository> iterator() {
-                return new PagedIterator<GHRepository>(root.retrieve().asIterator("/orgs/" + login + "/repos?per_page=" + pageSize, GHRepository[].class)) {
+            public PagedIterator<GHRepository> _iterator(int pageSize) {
+                return new PagedIterator<GHRepository>(root.retrieve().asIterator("/orgs/" + login + "/repos?per_page=" + pageSize, GHRepository[].class, pageSize)) {
                     @Override
                     protected void wrapUp(GHRepository[] page) {
                         for (GHRepository c : page)
@@ -251,5 +254,40 @@ public class GHOrganization extends GHPerson {
                 };
             }
         };
+    }
+
+    /**
+     * Retrieves the currently configured hooks.
+     */
+    public List<GHHook> getHooks() throws IOException {
+        return GHHooks.orgContext(this).getHooks();
+    }
+
+    public GHHook getHook(int id) throws IOException {
+        return GHHooks.orgContext(this).getHook(id);
+    }
+
+    /**
+     *
+     * See https://api.github.com/hooks for possible names and their configuration scheme.
+     * TODO: produce type-safe binding
+     *
+     * @param name
+     *      Type of the hook to be created. See https://api.github.com/hooks for possible names.
+     * @param config
+     *      The configuration hash.
+     * @param events
+     *      Can be null. Types of events to hook into.
+     */
+    public GHHook createHook(String name, Map<String,String> config, Collection<GHEvent> events, boolean active) throws IOException {
+        return GHHooks.orgContext(this).createHook(name, config, events, active);
+    }
+
+    public GHHook createWebHook(URL url, Collection<GHEvent> events) throws IOException {
+        return createHook("web", Collections.singletonMap("url", url.toExternalForm()),events,true);
+    }
+
+    public GHHook createWebHook(URL url) throws IOException {
+        return createWebHook(url, null);
     }
 }

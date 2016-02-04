@@ -1,6 +1,8 @@
 package org.kohsuke.github;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.IOException;
+import java.net.URL;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
@@ -10,22 +12,13 @@ import java.util.Map;
 /**
  * @author Kohsuke Kawaguchi
  */
-public class GHHook {
-    /**
-     * Repository that the hook belongs to.
-     */
-    /*package*/ transient GHRepository repository;
-    
-    String created_at, updated_at, name;
+@SuppressFBWarnings(value = {"UWF_UNWRITTEN_PUBLIC_OR_PROTECTED_FIELD", "UWF_UNWRITTEN_FIELD", 
+    "NP_UNWRITTEN_FIELD"}, justification = "JSON API")
+public abstract class GHHook extends GHObject {
+    String name;
     List<String> events;
     boolean active;
     Map<String,String> config;
-    int id;
-    
-    /*package*/ GHHook wrap(GHRepository owner) {
-        this.repository = owner;
-        return this;
-    }
 
     public String getName() {
         return name;
@@ -46,14 +39,22 @@ public class GHHook {
         return Collections.unmodifiableMap(config);
     }
 
-    public int getId() {
-        return id;
-    }
-
     /**
      * Deletes this hook.
      */
     public void delete() throws IOException {
-        new Requester(repository.root).method("DELETE").to(String.format("/repos/%s/%s/hooks/%d", repository.getOwnerName(), repository.getName(), id));
+        new Requester(getRoot()).method("DELETE").to(getApiRoute());
     }
+
+    /**
+     * @deprecated This object has no HTML URL.
+     */
+    @Override
+    public URL getHtmlUrl() {
+        return null;
+    }
+
+    abstract GitHub getRoot();
+
+    abstract String getApiRoute();
 }

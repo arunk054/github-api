@@ -1,5 +1,6 @@
 package org.kohsuke.github;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.Reader;
 import java.util.List;
 
@@ -25,6 +26,8 @@ public abstract class GHEventPayload {
      *
      * @see <a href="http://developer.github.com/v3/activity/events/types/#pullrequestevent">authoritative source</a>
      */
+    @SuppressFBWarnings(value = {"UWF_UNWRITTEN_PUBLIC_OR_PROTECTED_FIELD", "UWF_UNWRITTEN_FIELD", 
+    "NP_UNWRITTEN_FIELD"}, justification = "JSON API")
     public static class PullRequest extends GHEventPayload {
         private String action;
         private int number;
@@ -67,12 +70,15 @@ public abstract class GHEventPayload {
      *
      * @see <a href="http://developer.github.com/v3/activity/events/types/#issuecommentevent">authoritative source</a>
      */
+    @SuppressFBWarnings(value = {"UWF_FIELD_NOT_INITIALIZED_IN_CONSTRUCTOR", "NP_UNWRITTEN_FIELD" }, 
+            justification = "Constructed by JSON deserialization")
     public static class IssueComment extends GHEventPayload {
         private String action;
         private GHIssueComment comment;
         private GHIssue issue;
         private GHRepository repository;
 
+        @SuppressFBWarnings(value = "UWF_UNWRITTEN_FIELD", justification = "Comes from JSON deserialization")
         public String getAction() {
             return action;
         }
@@ -104,8 +110,12 @@ public abstract class GHEventPayload {
         @Override
         void wrapUp(GitHub root) {
             super.wrapUp(root);
-            repository.wrap(root);
-            issue.wrap(repository);
+            if (repository != null) {
+                repository.wrap(root);
+                issue.wrap(repository);
+            } else {
+                issue.wrap(root);
+            }
             comment.wrapUp(issue);
         }
     }
@@ -120,6 +130,7 @@ public abstract class GHEventPayload {
         private String ref;
         private int size;
         private List<PushCommit> commits;
+        private GHRepository repository;
 
         /**
          * The SHA of the HEAD commit on the repository
@@ -156,6 +167,17 @@ public abstract class GHEventPayload {
          */
         public List<PushCommit> getCommits() {
             return commits;
+        }
+
+        public GHRepository getRepository() {
+            return repository;
+        }
+
+        @Override
+        void wrapUp(GitHub root) {
+            super.wrapUp(root);
+            if (repository!=null)
+                repository.wrap(root);
         }
 
         /**

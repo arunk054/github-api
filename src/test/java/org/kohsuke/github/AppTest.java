@@ -1,22 +1,20 @@
 package org.kohsuke.github;
 
-import java.io.IOException;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.UUID;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 
+import org.apache.commons.io.IOUtils;
 import org.junit.Assume;
 import org.junit.Test;
 import org.kohsuke.github.GHCommit.File;
 import org.kohsuke.github.GHOrganization.Permission;
 
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
+import java.io.IOException;
+import java.net.URL;
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.regex.Pattern;
 
 /**
  * Unit test for simple App.
@@ -80,6 +78,51 @@ public class AppTest extends AbstractGitHubApiTestBase {
                 .create();
         assertNotNull(o);
         o.close();
+    }
+
+    @Test
+    public void testCreateDeployment() throws IOException {
+        GHRepository repository = getTestRepository();
+        GHDeployment deployment = repository.createDeployment("master")
+                .payload("{\"user\":\"atmos\",\"room_id\":123456}")
+                .description("question")
+                .create();
+        assertNotNull(deployment.getCreator());
+        assertNotNull(deployment.getId());
+    }
+
+    @Test
+    public void testListDeployments() throws IOException {
+        GHRepository repository = getTestRepository();
+        GHDeployment deployment = repository.createDeployment("master")
+                .payload("{\"user\":\"atmos\",\"room_id\":123456}")
+                .description("question")
+                .environment("unittest")
+                .create();
+        assertNotNull(deployment.getCreator());
+        assertNotNull(deployment.getId());
+        ArrayList<GHDeployment> deployments = Lists.newArrayList(repository.listDeployments(null, "master", null, "unittest"));
+        assertNotNull(deployments);
+        assertFalse(Iterables.isEmpty(deployments));
+        GHDeployment unitTestDeployment = deployments.get(0);
+        assertEquals("unittest",unitTestDeployment.getEnvironment());
+        assertEquals("master", unitTestDeployment.getRef());
+    }
+
+    @Test
+    public void testGetDeploymentStatuses() throws IOException {
+        GHRepository repository = getTestRepository();
+        GHDeployment deployment = repository.createDeployment("master")
+                .description("question")
+                .payload("{\"user\":\"atmos\",\"room_id\":123456}")
+                .create();
+       GHDeploymentStatus ghDeploymentStatus = repository.createDeployStatus(deployment.getId(), GHDeploymentState.SUCCESS)
+                                     .description("success")
+                                     .targetUrl("http://www.github.com").create();
+        Iterable<GHDeploymentStatus> deploymentStatuses = repository.getDeploymentStatuses(deployment.getId());
+        assertNotNull(deploymentStatuses);
+        assertEquals(1,Iterables.size(deploymentStatuses));
+        assertEquals(ghDeploymentStatus.getId(), Iterables.get(deploymentStatuses, 0).getId());
     }
 
     @Test
@@ -164,31 +207,31 @@ public class AppTest extends AbstractGitHubApiTestBase {
 
     @Test
     public void testMyTeamsContainsAllMyOrganizations() throws IOException {
-      Map<String, Set<GHTeam>> teams = gitHub.getMyTeams();
-      Map<String, GHOrganization> myOrganizations = gitHub.getMyOrganizations();
-      assertEquals(teams.keySet(), myOrganizations.keySet());
+        Map<String, Set<GHTeam>> teams = gitHub.getMyTeams();
+        Map<String, GHOrganization> myOrganizations = gitHub.getMyOrganizations();
+        assertEquals(teams.keySet(), myOrganizations.keySet());
     }
     
     @Test
     public void testMyTeamsShouldIncludeMyself() throws IOException {
-      Map<String, Set<GHTeam>> teams = gitHub.getMyTeams();
-      for (Entry<String, Set<GHTeam>> teamsPerOrg : teams.entrySet()) {
-        String organizationName = teamsPerOrg.getKey();
-        for (GHTeam team : teamsPerOrg.getValue()) {
-          String teamName = team.getName();
-        assertTrue("Team " + teamName + " in organization " + organizationName
-            + " does not contain myself",
-            shouldBelongToTeam(organizationName, teamName));
+        Map<String, Set<GHTeam>> teams = gitHub.getMyTeams();
+        for (Entry<String, Set<GHTeam>> teamsPerOrg : teams.entrySet()) {
+            String organizationName = teamsPerOrg.getKey();
+            for (GHTeam team : teamsPerOrg.getValue()) {
+                String teamName = team.getName();
+                assertTrue("Team " + teamName + " in organization " + organizationName
+                                + " does not contain myself",
+                        shouldBelongToTeam(organizationName, teamName));
+            }
         }
-      }
     }
 
     private boolean shouldBelongToTeam(String organizationName, String teamName) throws IOException {
-      GHOrganization org = gitHub.getOrganization(organizationName);
-      assertNotNull(org);
-      GHTeam team = org.getTeamByName(teamName);
-      assertNotNull(team);
-      return team.hasMember(gitHub.getMyself());
+        GHOrganization org = gitHub.getOrganization(organizationName);
+        assertNotNull(org);
+        GHTeam team = org.getTeamByName(teamName);
+        assertNotNull(team);
+        return team.hasMember(gitHub.getMyself());
     }
 
     @Test
@@ -243,7 +286,8 @@ public class AppTest extends AbstractGitHubApiTestBase {
     @Test
     public void testGetTeamsForRepo() throws Exception {
         kohsuke();
-        assertEquals(1,gitHub.getOrganization("github-api-test-org").getRepository("testGetTeamsForRepo").getTeams().size());
+        // 'Core Developers' and 'Owners'
+        assertEquals(2, gitHub.getOrganization("github-api-test-org").getRepository("testGetTeamsForRepo").getTeams().size());
     }
 
     @Test
@@ -266,7 +310,7 @@ public class AppTest extends AbstractGitHubApiTestBase {
             assertNotNull(t.getName());
             sz++;
         }
-        assertTrue(sz<100);
+        assertTrue(sz < 100);
     }
 
     @Test
@@ -308,7 +352,7 @@ public class AppTest extends AbstractGitHubApiTestBase {
             sha1.add(c.getSHA1());
         }
         assertEquals("1cccddb22e305397151b2b7b87b4b47d74ca337b",sha1.get(0));
-        assertEquals(29,sha1.size());
+        assertEquals(29, sha1.size());
     }
 
     @Test
@@ -458,7 +502,7 @@ public class AppTest extends AbstractGitHubApiTestBase {
         long start = System.currentTimeMillis();
         Map<String, GHRepository> repos = j.getRepositories();
         long end = System.currentTimeMillis();
-        System.out.printf("%d repositories in %dms\n",repos.size(),end-start);
+        System.out.printf("%d repositories in %dms\n", repos.size(), end - start);
     }
     
     @Test
@@ -484,7 +528,7 @@ public class AppTest extends AbstractGitHubApiTestBase {
         state = lst.get(0);
         System.out.println(state);
         assertEquals("testing!",state.getDescription());
-        assertEquals("http://kohsuke.org/",state.getTargetUrl());
+        assertEquals("http://kohsuke.org/", state.getTargetUrl());
     }
     
     @Test
@@ -555,10 +599,10 @@ public class AppTest extends AbstractGitHubApiTestBase {
     }
 
     @Test
-	public void testRef() throws IOException {
-		GHRef masterRef = gitHub.getRepository("jenkinsci/jenkins").getRef("heads/master");
-		assertEquals("https://api.github.com/repos/jenkinsci/jenkins/git/refs/heads/master", masterRef.getUrl().toString());
-	}
+    public void testRef() throws IOException {
+        GHRef masterRef = gitHub.getRepository("jenkinsci/jenkins").getRef("heads/master");
+        assertEquals("https://api.github.com/repos/jenkinsci/jenkins/git/refs/heads/master", masterRef.getUrl().toString());
+    }
 
     @Test
     public void directoryListing() throws IOException {
@@ -575,8 +619,8 @@ public class AppTest extends AbstractGitHubApiTestBase {
     
     @Test
     public void testAddDeployKey() throws IOException {
-    	GHRepository myRepository = Iterables.get(gitHub.getMyself().getRepositories().values(),0);
-    	final GHDeployKey newDeployKey = myRepository.addDeployKey("test", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDUt0RAycC5cS42JKh6SecfFZBR1RrF+2hYMctz4mk74/arBE+wFb7fnSHGzdGKX2h5CFOWODifRCJVhB7hlVxodxe+QkQQYAEL/x1WVCJnGgTGQGOrhOMj95V3UE5pQKhsKD608C+u5tSofcWXLToP1/wZ7U4/AHjqYi08OLsWToHCax55TZkvdt2jo0hbIoYU+XI9Q8Uv4ONDN1oabiOdgeKi8+crvHAuvNleiBhWVBzFh8KdfzaH5uNdw7ihhFjEd1vzqACsjCINCjdMfzl6jD9ExuWuE92nZJnucls2cEoNC6k2aPmrZDg9hA32FXVpyseY+bDUWFU6LO2LG6PB kohsuke@atlas");
+        GHRepository myRepository = getTestRepository();
+        final GHDeployKey newDeployKey = myRepository.addDeployKey("test", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDUt0RAycC5cS42JKh6SecfFZBR1RrF+2hYMctz4mk74/arBE+wFb7fnSHGzdGKX2h5CFOWODifRCJVhB7hlVxodxe+QkQQYAEL/x1WVCJnGgTGQGOrhOMj95V3UE5pQKhsKD608C+u5tSofcWXLToP1/wZ7U4/AHjqYi08OLsWToHCax55TZkvdt2jo0hbIoYU+XI9Q8Uv4ONDN1oabiOdgeKi8+crvHAuvNleiBhWVBzFh8KdfzaH5uNdw7ihhFjEd1vzqACsjCINCjdMfzl6jD9ExuWuE92nZJnucls2cEoNC6k2aPmrZDg9hA32FXVpyseY+bDUWFU6LO2LG6PB kohsuke@atlas");
         try {
             assertNotNull(newDeployKey.getId());
 
@@ -593,11 +637,195 @@ public class AppTest extends AbstractGitHubApiTestBase {
     
     @Test
     public void testCommitStatusContext() throws IOException {
-    	GHRepository myRepository = Iterables.get(gitHub.getMyself().getRepositories().values(), 0);
-    	GHRef masterRef = myRepository.getRef("heads/master");
-    	GHCommitStatus commitStatus = myRepository.createCommitStatus(masterRef.getObject().getSha(), GHCommitState.SUCCESS, "http://www.example.com", "test", "test/context");
-    	assertEquals("test/context", commitStatus.getContext());
-    	 
+        GHRepository myRepository = getTestRepository();
+        GHRef masterRef = myRepository.getRef("heads/master");
+        GHCommitStatus commitStatus = myRepository.createCommitStatus(masterRef.getObject().getSha(), GHCommitState.SUCCESS, "http://www.example.com", "test", "test/context");
+        assertEquals("test/context", commitStatus.getContext());
+         
+    }
+
+    @Test
+    public void testMemberPagenation() throws IOException {
+        Set<GHUser> all = new HashSet<GHUser>();
+        for (GHUser u : gitHub.getOrganization("github-api-test-org").getTeamByName("Core Developers").listMembers()) {
+            System.out.println(u.getLogin());
+            all.add(u);
+        }
+        assertFalse(all.isEmpty());
+    }
+
+    @Test
+    public void testIssueSearch() throws IOException {
+        PagedSearchIterable<GHIssue> r = gitHub.searchIssues().mentions("kohsuke").isOpen().list();
+        for (GHIssue i : r) {
+            System.out.println(i.getTitle());
+        }
+    }
+
+    @Test   // issue #99
+    public void testReadme() throws IOException {
+        GHContent readme = gitHub.getRepository("github-api-test-org/test-readme").getReadme();
+        assertEquals(readme.getName(),"README.md");
+        assertEquals(readme.getContent(),"This is a markdown readme.\n");
+    }
+    
+    
+    @Test
+    public void testTrees() throws IOException {
+        GHTree masterTree = gitHub.getRepository("kohsuke/github-api").getTree("master");
+        boolean foundReadme = false;
+        for(GHTreeEntry e : masterTree.getTree()){
+            if("readme".equalsIgnoreCase(e.getPath().replaceAll("\\.md", ""))){
+                foundReadme = true;
+                break;
+            }
+        }
+        assertTrue(foundReadme);
+    }
+    
+    @Test
+    public void testTreesRecursive() throws IOException {
+        GHTree masterTree = gitHub.getRepository("kohsuke/github-api").getTreeRecursive("master", 1);
+        boolean foundThisFile = false;
+        for(GHTreeEntry e : masterTree.getTree()){ 
+            if(e.getPath().endsWith(AppTest.class.getSimpleName() + ".java")){
+                foundThisFile = true;
+                break;
+            }
+        }
+        assertTrue(foundThisFile);
+    }
+
+    @Test
+    public void testRepoLabel() throws IOException {
+        GHRepository r = gitHub.getRepository("github-api-test-org/test-labels");
+        List<GHLabel> lst = r.listLabels().asList();
+        for (GHLabel l : lst) {
+            System.out.println(l.getName());
+        }
+        assertTrue(lst.size() > 5);
+        GHLabel e = r.getLabel("enhancement");
+        assertEquals("enhancement",e.getName());
+        assertNotNull(e.getUrl());
+        assertTrue(Pattern.matches("[0-9a-fA-F]{6}",e.getColor()));
+
+        {// CRUD
+            GHLabel t = r.createLabel("test", "123456");
+            GHLabel t2 = r.getLabel("test");
+            assertEquals(t.getName(), t2.getName());
+            assertEquals(t.getColor(), "123456");
+            assertEquals(t.getColor(), t2.getColor());
+            assertEquals(t.getUrl(), t2.getUrl());
+            t.delete();
+        }
+    }
+
+    @Test
+    public void testSubscribers() throws IOException {
+        boolean kohsuke = false;
+        GHRepository mr = gitHub.getRepository("kohsuke/github-api");
+        for (GHUser u : mr.listSubscribers()) {
+            System.out.println(u.getLogin());
+            kohsuke |= u.getLogin().equals("kohsuke");
+        }
+        assertTrue(kohsuke);
+        System.out.println("---");
+
+        boolean githubApi = false;
+        for (GHRepository r : gitHub.getUser("kohsuke").listRepositories()) {
+            System.out.println(r.getName());
+            githubApi |= r.equals(mr);
+        }
+        assertTrue(githubApi);
+    }
+
+    @Test
+    public void testListAllRepositories() throws Exception {
+        Iterator<GHRepository> itr = gitHub.listAllPublicRepositories().iterator();
+        for (int i=0; i<30; i++) {
+            assertTrue(itr.hasNext());
+            GHRepository r = itr.next();
+            System.out.println(r.getFullName());
+            assertNotNull(r.getUrl());
+            assertNotEquals(0,r.getId());
+        }
+    }
+
+    @Test // issue #162
+    public void testIssue162() throws Exception {
+        GHRepository r = gitHub.getRepository("kohsuke/github-api");
+        List<GHContent> contents = r.getDirectoryContent("", "gh-pages");
+        for (GHContent content : contents) {
+            if (content.isFile()) {
+                String content1 = content.getContent();
+                String content2 = r.getFileContent(content.getPath(), "gh-pages").getContent();
+                System.out.println(content.getPath());
+                assertEquals(content1, content2);
+            }
+        }
+    }
+
+    @Test
+    public void markDown() throws Exception {
+        assertEquals("<p><strong>Test日本語</strong></p>", IOUtils.toString(gitHub.renderMarkdown("**Test日本語**")).trim());
+
+        String actual = IOUtils.toString(gitHub.getRepository("kohsuke/github-api").renderMarkdown("@kohsuke to fix issue #1", MarkdownMode.GFM));
+        System.out.println(actual);
+        assertTrue(actual.contains("href=\"https://github.com/kohsuke\""));
+        assertTrue(actual.contains("href=\"https://github.com/kohsuke/github-api/pull/1\""));
+        assertTrue(actual.contains("class=\"user-mention\""));
+        assertTrue(actual.contains("class=\"issue-link\""));
+        assertTrue(actual.contains("to fix issue"));
+    }
+
+    @Test
+    public void searchUsers() throws Exception {
+        PagedSearchIterable<GHUser> r = gitHub.searchUsers().q("tom").repos(">42").followers(">1000").list();
+        GHUser u = r.iterator().next();
+        System.out.println(u.getName());
+        assertNotNull(u.getId());
+        assertTrue(r.getTotalCount() > 0);
+    }
+
+    @Test
+    public void searchRepositories() throws Exception {
+        PagedSearchIterable<GHRepository> r = gitHub.searchRepositories().q("tetris").language("assembly").sort(GHRepositorySearchBuilder.Sort.STARS).list();
+        GHRepository u = r.iterator().next();
+        System.out.println(u.getName());
+        assertNotNull(u.getId());
+        assertEquals("Assembly", u.getLanguage());
+        assertTrue(r.getTotalCount() > 0);
+    }
+
+    @Test
+    public void searchContent() throws Exception {
+        PagedSearchIterable<GHContent> r = gitHub.searchContent().q("addClass").in("file").language("js").repo("jquery/jquery").list();
+        GHContent c = r.iterator().next();
+        System.out.println(c.getName());
+        assertNotNull(c.getDownloadUrl());
+        assertNotNull(c.getOwner());
+        assertEquals("jquery/jquery",c.getOwner().getFullName());
+        assertTrue(r.getTotalCount() > 0);
+    }
+
+    @Test
+    public void notifications() throws Exception {
+        boolean found=false;
+        for (GHThread t : gitHub.listNotifications().nonBlocking(true).read(true)) {
+            if (!found) {
+                found = true;
+                t.markAsRead(); // test this by calling it once on old nofication
+            }
+            assertNotNull(t.getTitle());
+            assertNotNull(t.getReason());
+
+            System.out.println(t.getTitle());
+            System.out.println(t.getLastReadAt());
+            System.out.println(t.getType());
+            System.out.println();
+        }
+        assertTrue(found);
+        gitHub.listNotifications().markAsRead();
     }
 
     private void kohsuke() {

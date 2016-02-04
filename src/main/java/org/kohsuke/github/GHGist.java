@@ -3,8 +3,8 @@ package org.kohsuke.github;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.io.IOException;
+import java.net.URL;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -16,17 +16,18 @@ import java.util.Map.Entry;
  * @see GHUser#listGists()
  * @see GitHub#getGist(String)
  * @see GitHub#createGist()
+ * @see <a href="https://developer.github.com/v3/gists/">documentation</a>
  */
-public class GHGist {
+public class GHGist extends GHObject {
     /*package almost final*/ GHUser owner;
     /*package almost final*/ GitHub root;
 
-    private String url, forks_url, commits_url, id, git_pull_url, git_push_url, html_url;
+    private String forks_url, commits_url, id, git_pull_url, git_push_url, html_url;
 
     @JsonProperty("public")
     private boolean _public;
 
-    private String created_at, updated_at, description;
+    private String description;
 
     private int comments;
 
@@ -41,26 +42,12 @@ public class GHGist {
         return owner;
     }
 
-    /**
-     * API URL of this gist, such as 'https://api.github.com/gists/12345'
-     */
-    public String getUrl() {
-        return url;
-    }
-
     public String getForksUrl() {
         return forks_url;
     }
 
     public String getCommitsUrl() {
         return commits_url;
-    }
-
-    /**
-     * ID of this gist, such as '12345'
-     */
-    public String getId() {
-        return id;
     }
 
     /**
@@ -74,20 +61,12 @@ public class GHGist {
         return git_push_url;
     }
 
-    public String getHtmlUrl() {
-        return html_url;
+    public URL getHtmlUrl() {
+        return GitHub.parseURL(html_url);
     }
 
     public boolean isPublic() {
         return _public;
-    }
-
-    public Date getCreatedAt() {
-        return GitHub.parseDate(created_at);
-    }
-
-    public Date getUpdatedAt() {
-        return GitHub.parseDate(updated_at);
     }
 
     public String getDescription() {
@@ -161,8 +140,8 @@ public class GHGist {
 
     public PagedIterable<GHGist> listForks() {
         return new PagedIterable<GHGist>() {
-            public PagedIterator<GHGist> iterator() {
-                return new PagedIterator<GHGist>(root.retrieve().asIterator(getApiTailUrl("forks"), GHGist[].class)) {
+            public PagedIterator<GHGist> _iterator(int pageSize) {
+                return new PagedIterator<GHGist>(root.retrieve().asIterator(getApiTailUrl("forks"), GHGist[].class, pageSize)) {
                     @Override
                     protected void wrapUp(GHGist[] page) {
                         try {

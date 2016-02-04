@@ -2,8 +2,10 @@ package org.kohsuke.github;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -14,15 +16,14 @@ import java.util.TreeMap;
  * 
  * @author Kohsuke Kawaguchi
  */
-public abstract class GHPerson {
+public abstract class GHPerson extends GHObject {
     /*package almost final*/ GitHub root;
 
     // core data fields that exist even for "small" user data (such as the user info in pull request)
-    protected String login, avatar_url, url, gravatar_id;
-    protected int id;
+    protected String login, avatar_url, gravatar_id;
 
     // other fields (that only show up in full data)
-    protected String location,blog,email,name,created_at,company;
+    protected String location,blog,email,name,company;
     protected String html_url;
     protected int followers,following,public_repos,public_gists;
 
@@ -38,7 +39,7 @@ public abstract class GHPerson {
      *
      * Depending on the original API call where this object is created, it may not contain everything.
      */
-    protected void populate() throws IOException {
+    protected synchronized void populate() throws IOException {
         if (created_at!=null)    return; // already populated
 
         root.retrieve().to(url, this);
@@ -120,8 +121,10 @@ public abstract class GHPerson {
      */
     public PagedIterable<GHRepository> listRepositories(final int pageSize, final GHRepoActivity typeOfActivity) {
         return new PagedIterable<GHRepository>() {
+
             public PagedIterator<GHRepository> iterator() {
                 return new PagedIterator<GHRepository>(root.retrieve().asIterator("/users/" + login + "/"+typeOfActivity.toString()+"?per_page=" + pageSize, GHRepository[].class)) {
+
                     @Override
                     protected void wrapUp(GHRepository[] page) {
                         for (GHRepository c : page)
@@ -148,7 +151,7 @@ public abstract class GHPerson {
     public synchronized Iterable<List<GHRepository>> iterateRepositories(final int pageSize) {
         return new Iterable<List<GHRepository>>() {
             public Iterator<List<GHRepository>> iterator() {
-                final Iterator<GHRepository[]> pager = root.retrieve().asIterator("/users/" + login + "/repos?per_page="+pageSize,GHRepository[].class);
+                final Iterator<GHRepository[]> pager = root.retrieve().asIterator("/users/" + login + "/repos?per_page="+pageSize,GHRepository[].class, pageSize);
 
                 return new Iterator<List<GHRepository>>() {
                     public boolean hasNext() {
@@ -241,9 +244,14 @@ public abstract class GHPerson {
         return location;
     }
 
-    public String getCreatedAt() throws IOException {
+    public Date getCreatedAt() throws IOException {
         populate();
-        return created_at;
+        return super.getCreatedAt();
+    }
+
+    public Date getUpdatedAt() throws IOException {
+        populate();
+        return super.getCreatedAt();
     }
 
     /**
@@ -254,8 +262,9 @@ public abstract class GHPerson {
         return blog;
     }
 
-    public String getHtmlUrl() {
-        return html_url;
+    @Override
+    public URL getHtmlUrl() {
+        return GitHub.parseURL(html_url);
     }
 
     /**
@@ -279,13 +288,6 @@ public abstract class GHPerson {
     public int getFollowingCount() throws IOException {
         populate();
         return following;
-    }
-
-    /**
-     * What appears to be a GitHub internal unique number that identifies this user.
-     */
-    public int getId() {
-        return id;
     }
 
     public int getFollowersCount() throws IOException {

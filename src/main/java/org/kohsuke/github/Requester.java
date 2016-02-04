@@ -23,13 +23,13 @@
  */
 package org.kohsuke.github;
 
-import static org.kohsuke.github.GitHub.MAPPER;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import org.apache.commons.io.IOUtils;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.InterruptedIOException;
 import java.io.Reader;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Array;
@@ -42,19 +42,20 @@ import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
-import org.apache.commons.io.IOUtils;
+import javax.annotation.WillClose;
 
-import javax.net.ssl.HttpsURLConnection;
+import static java.util.Arrays.asList;
+import static org.kohsuke.github.GitHub.*;
 
 /**
  * A builder pattern for making HTTP call and parsing its output.
@@ -62,8 +63,11 @@ import javax.net.ssl.HttpsURLConnection;
  * @author Kohsuke Kawaguchi
  */
 class Requester {
+    private static final List<String> METHODS_WITHOUT_BODY = asList("GET", "DELETE");
+    
     private final GitHub root;
     private final List<Entry> args = new ArrayList<Entry>();
+    private final Map<String,String> headers = new LinkedHashMap<String, String>();
 
     /**
      * Request method.
@@ -71,6 +75,11 @@ class Requester {
     private String method = "POST";
     private String contentType = "application/x-www-form-urlencoded";
     private InputStream body;
+
+    /**
+     * Current connection.
+     */
+    private HttpURLConnection uc;
 
     private static class Entry {
         String key;
@@ -84,6 +93,15 @@ class Requester {
 
     Requester(GitHub root) {
         this.root = root;
+    }
+
+    /**
+     * Sets the request HTTP header.
+     *
+     * If a header of the same name is already set, this method overrides it.
+     */
+    public void setHeader(String name, String value) {
+        headers.put(name,value);
     }
 
     /**
@@ -102,12 +120,24 @@ class Requester {
 
     public Requester with(String key, Integer value) {
         if (value!=null)
-            _with(key, value.intValue());
+            _with(key, value);
         return this;
     }
 
     public Requester with(String key, boolean value) {
         return _with(key, value);
+    }
+    public Requester with(String key, Boolean value) {
+        return _with(key, value);
+    }
+
+    public Requester with(String key, Enum e) {
+        if (e==null)    return _with(key, null);
+
+        // by convention Java constant names are upper cases, but github uses
+        // lower-case constants. GitHub also uses '-', which in Java we always
+        // replace by '_'
+        return with(key, e.toString().toLowerCase(Locale.ENGLISH).replace('_','-'));
     }
 
     public Requester with(String key, String value) {
@@ -122,7 +152,7 @@ class Requester {
         return _with(key, value);
     }
 
-    public Requester with(InputStream body) {
+    public Requester with(@WillClose/*later*/ InputStream body) {
         this.body = body;
         return this;
     }
@@ -132,6 +162,19 @@ class Requester {
             args.add(new Entry(key,value));
         }
         return this;
+    }
+
+    /**
+     * Unlike {@link #with(String, String)}, overrides the existing value
+     */
+    public Requester set(String key, Object value) {
+        for (Entry e : args) {
+            if (e.key.equals(key)) {
+                e.value = value;
+                return this;
+            }
+        }
+        return _with(key,value);
     }
 
     public Requester method(String method) {
@@ -177,12 +220,20 @@ class Requester {
 
     private <T> T _to(String tailApiUrl, Class<T> type, T instance) throws IOException {
         while (true) {// loop while API rate limit is hit
-            HttpURLConnection uc = setupConnection(root.getApiURL(tailApiUrl));
+            if (METHODS_WITHOUT_BODY.contains(method) && !args.isEmpty()) {
+                StringBuilder qs=new StringBuilder();
+                for (Entry arg : args) {
+                    qs.append(qs.length()==0 ? '?' : '&');
+                    qs.append(arg.key).append('=').append(URLEncoder.encode(arg.value.toString(),"UTF-8"));
+                }
+                tailApiUrl += qs.toString();
+            }
+            setupConnection(root.getApiURL(tailApiUrl));
 
-            buildRequest(uc);
+            buildRequest();
 
             try {
-                T result = parse(uc, type, instance);
+                T result = parse(type, instance);
                 if (type != null && type.isArray()) { // we might have to loop for pagination - done through recursion
                     final String links = uc.getHeaderField("link");
                     if (links != null && links.contains("rel=\"next\"")) {
@@ -203,7 +254,7 @@ class Requester {
                 }
                 return result;
             } catch (IOException e) {
-                handleApiError(e,uc);
+                handleApiError(e);
             }
         }
     }
@@ -213,20 +264,47 @@ class Requester {
      */
     public int asHttpStatusCode(String tailApiUrl) throws IOException {
         while (true) {// loop while API rate limit is hit
-            HttpURLConnection uc = setupConnection(root.getApiURL(tailApiUrl));
+            setupConnection(root.getApiURL(tailApiUrl));
 
-            buildRequest(uc);
+            uc.setRequestMethod("GET");
+
+            buildRequest();
 
             try {
                 return uc.getResponseCode();
             } catch (IOException e) {
-                handleApiError(e,uc);
+                handleApiError(e);
             }
         }
     }
 
-    private void buildRequest(HttpURLConnection uc) throws IOException {
-        if (!method.equals("GET")) {
+    public InputStream asStream(String tailApiUrl) throws IOException {
+        while (true) {// loop while API rate limit is hit
+            setupConnection(root.getApiURL(tailApiUrl));
+
+            // if the download link is encoded with a token on the query string, the default behavior of POST will fail
+            uc.setRequestMethod("GET");
+            
+            buildRequest();        
+         
+            try {
+                return wrapStream(uc.getInputStream());
+            } catch (IOException e) {
+                handleApiError(e);
+            }
+        }
+    }
+
+    public String getResponseHeader(String header) {
+        return uc.getHeaderField(header);
+    }
+
+
+    /**
+     * Set up the request parameters or POST payload.
+     */
+    private void buildRequest() throws IOException {
+        if (isMethodWithBody()) {
             uc.setDoOutput(true);
             uc.setRequestProperty("Content-type", contentType);
 
@@ -250,116 +328,137 @@ class Requester {
         }
     }
 
+    private boolean isMethodWithBody() {
+        return !METHODS_WITHOUT_BODY.contains(method);
+    }
+
     /**
      * Loads pagenated resources.
      *
      * Every iterator call reports a new batch.
      */
-    /*package*/ <T> Iterator<T> asIterator(String _tailApiUrl, final Class<T> type) {
+    /*package*/ <T> Iterator<T> asIterator(String tailApiUrl, Class<T> type, int pageSize) {
         method("GET");
 
+        if (pageSize!=0)
+            args.add(new Entry("per_page",pageSize));
+
+        StringBuilder s = new StringBuilder(tailApiUrl);
         if (!args.isEmpty()) {
-            boolean first=true;
+            boolean first = true;
             try {
                 for (Entry a : args) {
-                    _tailApiUrl += first ? '?' : '&';
+                    s.append(first ? '?' : '&');
                     first = false;
-                    _tailApiUrl += URLEncoder.encode(a.key,"UTF-8")+'='+URLEncoder.encode(a.value.toString(),"UTF-8");
+                    s.append(URLEncoder.encode(a.key, "UTF-8"));
+                    s.append('=');
+                    s.append(URLEncoder.encode(a.value.toString(), "UTF-8"));
                 }
             } catch (UnsupportedEncodingException e) {
                 throw new AssertionError(e);    // UTF-8 is mandatory
             }
         }
 
-        final String tailApiUrl = _tailApiUrl;
+        try {
+            return new PagingIterator<T>(type, root.getApiURL(s.toString()));
+        } catch (IOException e) {
+            throw new Error(e);
+        }
+    }
 
-        return new Iterator<T>() {
-            /**
-             * The next batch to be returned from {@link #next()}.
-             */
-            T next;
-            /**
-             * URL of the next resource to be retrieved, or null if no more data is available.
-             */
-            URL url;
+    class PagingIterator<T> implements Iterator<T> {
 
-            {
-                try {
-                    url = root.getApiURL(tailApiUrl);
-                } catch (IOException e) {
-                    throw new Error(e);
-                }
-            }
+        private final Class<T> type;
 
-            public boolean hasNext() {
-                fetch();
-                return next!=null;
-            }
+        /**
+         * The next batch to be returned from {@link #next()}.
+         */
+        private T next;
 
-            public T next() {
-                fetch();
-                T r = next;
-                if (r==null)    throw new NoSuchElementException();
-                next = null;
-                return r;
-            }
+        /**
+         * URL of the next resource to be retrieved, or null if no more data is available.
+         */
+        private URL url;
 
-            public void remove() {
-                throw new UnsupportedOperationException();
-            }
+        PagingIterator(Class<T> type, URL url) {
+            this.url = url;
+            this.type = type;
+        }
 
-            private void fetch() {
-                if (next!=null) return; // already fetched
-                if (url==null)  return; // no more data to fetch
+        public boolean hasNext() {
+            fetch();
+            return next!=null;
+        }
 
-                try {
-                    while (true) {// loop while API rate limit is hit
-                        HttpURLConnection uc = setupConnection(url);
-                        try {
-                            next = parse(uc,type,null);
-                            assert next!=null;
-                            findNextURL(uc);
-                            return;
-                        } catch (IOException e) {
-                            handleApiError(e,uc);
-                        }
-                    }
-                } catch (IOException e) {
-                    throw new Error(e);
-                }
-            }
+        public T next() {
+            fetch();
+            T r = next;
+            if (r==null)    throw new NoSuchElementException();
+            next = null;
+            return r;
+        }
 
-            /**
-             * Locate the next page from the pagination "Link" tag.
-             */
-            private void findNextURL(HttpURLConnection uc) throws MalformedURLException {
-                url = null; // start defensively
-                String link = uc.getHeaderField("Link");
-                if (link==null) return;
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
 
-                for (String token : link.split(", ")) {
-                    if (token.endsWith("rel=\"next\"")) {
-                        // found the next page. This should look something like
-                        // <https://api.github.com/repos?page=3&per_page=100>; rel="next"
-                        int idx = token.indexOf('>');
-                        url = new URL(token.substring(1,idx));
+        private void fetch() {
+            if (next!=null) return; // already fetched
+            if (url==null)  return; // no more data to fetch
+
+            try {
+                while (true) {// loop while API rate limit is hit
+                    setupConnection(url);
+                    try {
+                        next = parse(type,null);
+                        assert next!=null;
+                        findNextURL();
                         return;
+                    } catch (IOException e) {
+                        handleApiError(e);
                     }
                 }
-
-                // no more "next" link. we are done.
+            } catch (IOException e) {
+                throw new Error(e);
             }
-        };
+        }
+
+        /**
+         * Locate the next page from the pagination "Link" tag.
+         */
+        private void findNextURL() throws MalformedURLException {
+            url = null; // start defensively
+            String link = uc.getHeaderField("Link");
+            if (link==null) return;
+
+            for (String token : link.split(", ")) {
+                if (token.endsWith("rel=\"next\"")) {
+                    // found the next page. This should look something like
+                    // <https://api.github.com/repos?page=3&per_page=100>; rel="next"
+                    int idx = token.indexOf('>');
+                    url = new URL(token.substring(1,idx));
+                    return;
+                }
+            }
+
+            // no more "next" link. we are done.
+        }
     }
 
 
-    private HttpURLConnection setupConnection(URL url) throws IOException {
-        HttpURLConnection uc = root.getConnector().connect(url);
+    private void setupConnection(URL url) throws IOException {
+        uc = root.getConnector().connect(url);
 
         // if the authentication is needed but no credential is given, try it anyway (so that some calls
         // that do work with anonymous access in the reduced form should still work.)
         if (root.encodedAuthorization!=null)
             uc.setRequestProperty("Authorization", root.encodedAuthorization);
+
+        for (Map.Entry<String, String> e : headers.entrySet()) {
+            String v = e.getValue();
+            if (v!=null)
+                uc.setRequestProperty(e.getKey(), v);
+        }
 
         try {
             uc.setRequestMethod(method);
@@ -374,16 +473,21 @@ class Requester {
             }
         }
         uc.setRequestProperty("Accept-Encoding", "gzip");
-        return uc;
     }
 
-    private <T> T parse(HttpURLConnection uc, Class<T> type, T instance) throws IOException {
+    private <T> T parse(Class<T> type, T instance) throws IOException {
+        if (uc.getResponseCode()==304)
+            return null;    // special case handling for 304 unmodified, as the content will be ""
         InputStreamReader r = null;
         try {
-            r = new InputStreamReader(wrapStream(uc, uc.getInputStream()), "UTF-8");
+            r = new InputStreamReader(wrapStream(uc.getInputStream()), "UTF-8");
             String data = IOUtils.toString(r);
             if (type!=null)
-                return MAPPER.readValue(data,type);
+                try {
+                    return MAPPER.readValue(data,type);
+                } catch (JsonMappingException e) {
+                    throw (IOException)new IOException("Failed to deserialize "+data).initCause(e);
+                }
             if (instance!=null)
                 return MAPPER.readerForUpdating(instance).<T>readValue(data);
             return null;
@@ -395,7 +499,7 @@ class Requester {
     /**
      * Handles the "Content-Encoding" header.
      */
-    private InputStream wrapStream(HttpURLConnection uc, InputStream in) throws IOException {
+    private InputStream wrapStream(InputStream in) throws IOException {
         String encoding = uc.getContentEncoding();
         if (encoding==null || in==null) return in;
         if (encoding.equals("gzip"))    return new GZIPInputStream(in);
@@ -404,38 +508,29 @@ class Requester {
     }
 
     /**
-     * If the error is because of the API limit, wait 10 sec and return normally.
-     * Otherwise throw an exception reporting an error.
+     * Handle API error by either throwing it or by returning normally to retry.
      */
-    /*package*/ void handleApiError(IOException e, HttpURLConnection uc) throws IOException {
+    /*package*/ void handleApiError(IOException e) throws IOException {
+        if (uc.getResponseCode() == 401) // Unauthorized == bad creds
+            throw e;
+
         if ("0".equals(uc.getHeaderField("X-RateLimit-Remaining"))) {
-            // API limit reached. wait 10 secs and return normally
-            try {
-                Thread.sleep(10000);
-                return;
-            } catch (InterruptedException _) {
-                throw (InterruptedIOException)new InterruptedIOException().initCause(e);
-            }
+            root.rateLimitHandler.onError(e,uc);
+            return;
         }
 
-        if (e instanceof FileNotFoundException)
-            throw e;    // pass through 404 Not Found to allow the caller to handle it intelligently
-
-        InputStream es = wrapStream(uc, uc.getErrorStream());
+        InputStream es = wrapStream(uc.getErrorStream());
         try {
-            if (es!=null)
-                throw (IOException)new IOException(IOUtils.toString(es,"UTF-8")).initCause(e);
-            else
+            if (es!=null) {
+                if (e instanceof FileNotFoundException) {
+                    // pass through 404 Not Found to allow the caller to handle it intelligently
+                    throw (IOException) new FileNotFoundException(IOUtils.toString(es, "UTF-8")).initCause(e);
+                } else
+                    throw (IOException) new IOException(IOUtils.toString(es, "UTF-8")).initCause(e);
+            } else
                 throw e;
         } finally {
             IOUtils.closeQuietly(es);
         }
-    }
-
-    private Set<String> toSet(String s) {
-        Set<String> r = new HashSet<String>();
-        for (String t : s.split(","))
-            r.add(t.trim());
-        return r;
     }
 }

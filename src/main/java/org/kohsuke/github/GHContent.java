@@ -1,8 +1,11 @@
 package org.kohsuke.github;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.io.IOUtils;
+
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
+import java.io.InputStream;
 
 import javax.xml.bind.DatatypeConverter;
 
@@ -14,7 +17,13 @@ import javax.xml.bind.DatatypeConverter;
  */
 @SuppressWarnings({"UnusedDeclaration"})
 public class GHContent {
-    private GHRepository owner;
+    /*
+        In normal use of this class, repository field is set via wrap(),
+        but in the code search API, there's a nested 'repository' field that gets populated from JSON.
+     */
+    private GHRepository repository;
+
+    private GitHub root;
 
     private String type;
     private String encoding;
@@ -26,9 +35,10 @@ public class GHContent {
     private String url; // this is the API url
     private String git_url;    // this is the Blob url
     private String html_url;    // this is the UI
+    private String download_url;
 
     public GHRepository getOwner() {
-        return owner;
+        return repository;
     }
 
     public String getType() {
@@ -58,35 +68,35 @@ public class GHContent {
     /**
      * Retrieve the decoded content that is stored at this location.
      *
+     * <p>
      * Due to the nature of GitHub's API, you're not guaranteed that
      * the content will already be populated, so this may trigger
      * network activity, and can throw an IOException.
-    **/
+     *
+     * @deprecated
+     *      Use {@link #read()}
+     */
+    @SuppressFBWarnings("DM_DEFAULT_ENCODING")
     public String getContent() throws IOException {
         return new String(DatatypeConverter.parseBase64Binary(getEncodedContent()));
     }
 
     /**
-     * Retrieve the raw content that is stored at this location.
+     * Retrieve the base64-encoded content that is stored at this location.
      *
+     * <p>
      * Due to the nature of GitHub's API, you're not guaranteed that
      * the content will already be populated, so this may trigger
      * network activity, and can throw an IOException.
-    **/
+     *
+     * @deprecated
+     *      Use {@link #read()}
+     */
     public String getEncodedContent() throws IOException {
-        if (content != null)
+        if (content!=null)
             return content;
-
-        GHContent retrievedContent = owner.getFileContent(path);
-
-        this.size = retrievedContent.size;
-        this.sha = retrievedContent.sha;
-        this.content = retrievedContent.content;
-        this.url = retrievedContent.url;
-        this.git_url = retrievedContent.git_url;
-        this.html_url = retrievedContent.html_url;
-
-        return content;
+        else
+            return Base64.encodeBase64String(IOUtils.toByteArray(read()));
     }
 
     public String getUrl() {
@@ -101,12 +111,37 @@ public class GHContent {
         return html_url;
     }
 
+    /**
+     * Retrieves the actual content stored here.
+     */
+    public InputStream read() throws IOException {
+        return new Requester(root).asStream(getDownloadUrl());
+    }
+
+    /**
+     * URL to retrieve the raw content of the file. Null if this is a directory.
+     */
+    public String getDownloadUrl() throws IOException {
+        populate();
+        return download_url;
+    }
+
     public boolean isFile() {
         return "file".equals(type);
     }
 
     public boolean isDirectory() {
         return "dir".equals(type);
+    }
+
+    /**
+     * Fully populate the data by retrieving missing data.
+     *
+     * Depending on the original API call where this object is created, it may not contain everything.
+     */
+    protected synchronized void populate() throws IOException {
+        if (download_url!=null)    return; // already populated
+        root.retrieve().to(url, this);
     }
 
     /**
@@ -117,25 +152,35 @@ public class GHContent {
             throw new IllegalStateException(path+" is not a directory");
 
         return new PagedIterable<GHContent>() {
-            public PagedIterator<GHContent> iterator() {
-                return new PagedIterator<GHContent>(owner.root.retrieve().asIterator(url, GHContent[].class)) {
+            public PagedIterator<GHContent> _iterator(int pageSize) {
+                return new PagedIterator<GHContent>(root.retrieve().asIterator(url, GHContent[].class, pageSize)) {
                     @Override
                     protected void wrapUp(GHContent[] page) {
-                        GHContent.wrap(page,owner);
+                        GHContent.wrap(page, repository);
                     }
                 };
             }
         };
     }
 
+    @SuppressFBWarnings("DM_DEFAULT_ENCODING")
     public GHContentUpdateResponse update(String newContent, String commitMessage) throws IOException {
-        return update(newContent, commitMessage, null);
+        return update(newContent.getBytes(), commitMessage, null);
     }
 
+    @SuppressFBWarnings("DM_DEFAULT_ENCODING")
     public GHContentUpdateResponse update(String newContent, String commitMessage, String branch) throws IOException {
-        String encodedContent = DatatypeConverter.printBase64Binary(newContent.getBytes());
+        return update(newContent.getBytes(), commitMessage, branch);
+    }
 
-        Requester requester = new Requester(owner.root)
+    public GHContentUpdateResponse update(byte[] newContentBytes, String commitMessage) throws IOException {
+        return update(newContentBytes, commitMessage, null);
+    }
+
+    public GHContentUpdateResponse update(byte[] newContentBytes, String commitMessage, String branch) throws IOException {
+        String encodedContent = DatatypeConverter.printBase64Binary(newContentBytes);
+
+        Requester requester = new Requester(root)
             .with("path", path)
             .with("message", commitMessage)
             .with("sha", sha)
@@ -148,8 +193,8 @@ public class GHContent {
 
         GHContentUpdateResponse response = requester.to(getApiRoute(), GHContentUpdateResponse.class);
 
-        response.getContent().wrap(owner);
-        response.getCommit().wrapUp(owner);
+        response.getContent().wrap(repository);
+        response.getCommit().wrapUp(repository);
 
         this.content = encodedContent;
         return response;
@@ -160,7 +205,7 @@ public class GHContent {
     }
 
     public GHContentUpdateResponse delete(String commitMessage, String branch) throws IOException {
-        Requester requester = new Requester(owner.root)
+        Requester requester = new Requester(root)
             .with("path", path)
             .with("message", commitMessage)
             .with("sha", sha)
@@ -172,18 +217,26 @@ public class GHContent {
 
         GHContentUpdateResponse response = requester.to(getApiRoute(), GHContentUpdateResponse.class);
 
-        response.getCommit().wrapUp(owner);
+        response.getCommit().wrapUp(repository);
         return response;
     }
 
     private String getApiRoute() {
-        return "/repos/" + owner.getOwnerName() + "/" + owner.getName() + "/contents/" + path;
+        return "/repos/" + repository.getOwnerName() + "/" + repository.getName() + "/contents/" + path;
     }
 
     GHContent wrap(GHRepository owner) {
-        this.owner = owner;
+        this.repository = owner;
+        this.root = owner.root;
         return this;
     }
+    GHContent wrap(GitHub root) {
+        this.root = root;
+        if (repository!=null)
+            repository.wrap(root);
+        return this;
+    }
+
 
     public static GHContent[] wrap(GHContent[] contents, GHRepository repository) {
         for (GHContent unwrappedContent : contents) {

@@ -1,91 +1,53 @@
 package org.kohsuke.github;
 
-import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.MockitoAnnotations;
+import org.kohsuke.github.GHRepository.Contributor;
 
-import java.util.Iterator;
-
-import static org.mockito.Mockito.when;
+import java.io.IOException;
 
 /**
- * @author Luciano P. Sabenca (luciano.sabenca [at] movile [com] | lucianosabenca [at] gmail [dot] com
+ * @author Kohsuke Kawaguchi
  */
-public class RepositoryTest {
+public class RepositoryTest extends AbstractGitHubApiTestBase {
+    @Test
+    public void subscription() throws Exception {
+        GHRepository r = getRepository();
+        assertNull(r.getSubscription());
 
-    @Mock
-    GitHub mockGitHub;
+        GHSubscription s = r.subscribe(true, false);
+        assertEquals(s.getRepository(), r);
 
-    @Mock
-    Iterator<GHUser[]> iterator;
+        s.delete();
 
-    @Mock
-    GHRepository mockRepository;
-
-
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
+        assertNull(r.getSubscription());
     }
 
     @Test
-    public void listCollaborators() throws Exception {
-        GHUser user1 = new GHUser();
-        user1.login = "login1";
+    public void listContributors() throws IOException {
+        GHRepository r = gitHub.getOrganization("stapler").getRepository("stapler");
+        int i=0;
+        boolean kohsuke = false;
 
-        GHUser user2 = new GHUser();
-        user2.login = "login2";
+        for (Contributor c : r.listContributors()) {
+            System.out.println(c.getName());
+            assertTrue(c.getContributions()>0);
+            if (c.getLogin().equals("kohsuke"))
+                kohsuke = true;
+            if (i++ > 5)
+                break;
+        }
 
+        assertTrue(kohsuke);
+    }
 
-        when(iterator.hasNext()).thenReturn(true, false, true);
-        when(iterator.next()).thenReturn(new GHUser[]{user1}, new GHUser[]{user2});
+    private GHRepository getRepository() throws IOException {
+        return gitHub.getOrganization("github-api-test-org").getRepository("jenkins");
+    }
 
-        Requester requester = Mockito.mock(Requester.class);
-        when(mockGitHub.retrieve()).thenReturn(requester);
-
-
-        when(requester.asIterator("/repos/*/*/collaborators",
-                GHUser[].class)).thenReturn(iterator, iterator);
-
-
-        PagedIterable<GHUser> pagedIterable = Mockito.mock(PagedIterable.class);
-        when(mockRepository.listCollaborators()).thenReturn(pagedIterable);
-
-        PagedIterator<GHUser> userPagedIterator = new PagedIterator<GHUser>(iterator) {
-            @Override
-            protected void wrapUp(GHUser[] page) {
-
-            }
-        };
-        PagedIterator<GHUser> userPagedIterator2 = new PagedIterator<GHUser>(iterator) {
-            @Override
-            protected void wrapUp(GHUser[] page) {
-
-            }
-        };
-
-
-        when(pagedIterable.iterator()).thenReturn(userPagedIterator, userPagedIterator2);
-
-        Iterator<GHUser> returnIterator1 = mockRepository.listCollaborators().iterator();
-
-
-        Assert.assertTrue(returnIterator1.hasNext());
-        GHUser user = returnIterator1.next();
-        Assert.assertEquals(user, user1);
-        Assert.assertFalse(returnIterator1.hasNext());
-
-
-        Iterator returnIterator2 = mockRepository.listCollaborators().iterator();
-
-
-        Assert.assertTrue(returnIterator2.hasNext());
-        user = returnIterator1.next();
-        Assert.assertEquals(user, user2);
-
-
+    @Test
+    public void listLanguages() throws IOException {
+        GHRepository r = gitHub.getRepository("kohsuke/github-api");
+        String mainLanguage = r.getLanguage();
+        assertTrue(r.listLanguages().containsKey(mainLanguage));
     }
 }

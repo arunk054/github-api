@@ -3,6 +3,7 @@ package org.kohsuke.github;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -15,22 +16,19 @@ import static java.lang.String.format;
  * @see GHRepository#getReleases()
  * @see GHRepository#createRelease(String)
  */
-public class GHRelease {
+public class GHRelease extends GHObject {
     GitHub root;
     GHRepository owner;
 
-    private String url;
     private String html_url;
     private String assets_url;
     private String upload_url;
-    private long id;
     private String tag_name;
     private String target_commitish;
     private String name;
     private String body;
     private boolean draft;
     private boolean prerelease;
-    private Date created_at;
     private Date published_at;
     private String tarball_url;
     private String zipball_url;
@@ -39,48 +37,22 @@ public class GHRelease {
         return assets_url;
     }
 
-    public void setAssetsUrl(String assets_url) {
-        this.assets_url = assets_url;
-    }
-
     public String getBody() {
         return body;
-    }
-
-    public void setBody(String body) {
-        this.body = body;
-    }
-
-    public Date getCreatedAt() {
-        return created_at;
-    }
-
-    public void setCreatedAt(Date created_at) {
-        this.created_at = created_at;
     }
 
     public boolean isDraft() {
         return draft;
     }
 
-    public void setDraft(boolean draft) {
-        this.draft = draft;
+    public GHRelease setDraft(boolean draft) throws IOException {
+      edit("draft", draft);
+      this.draft = draft;
+      return this;
     }
 
-    public String getHtmlUrl() {
-        return html_url;
-    }
-
-    public void setHtmlUrl(String html_url) {
-        this.html_url = html_url;
-    }
-
-    public long getId() {
-        return id;
-    }
-
-    public void setId(long id) {
-        this.id = id;
+    public URL getHtmlUrl() {
+        return GitHub.parseURL(html_url);
     }
 
     public String getName() {
@@ -103,72 +75,32 @@ public class GHRelease {
         return prerelease;
     }
 
-    public void setPrerelease(boolean prerelease) {
-        this.prerelease = prerelease;
-    }
-
     public Date getPublished_at() {
-        return published_at;
-    }
-
-    public void setPublished_at(Date published_at) {
-        this.published_at = published_at;
+        return new Date(published_at.getTime());
     }
 
     public GitHub getRoot() {
         return root;
     }
 
-    public void setRoot(GitHub root) {
-        this.root = root;
-    }
-
     public String getTagName() {
         return tag_name;
-    }
-
-    public void setTagName(String tag_name) {
-        this.tag_name = tag_name;
     }
 
     public String getTargetCommitish() {
         return target_commitish;
     }
 
-    public void setTargetCommitish(String target_commitish) {
-        this.target_commitish = target_commitish;
-    }
-
     public String getUploadUrl() {
         return upload_url;
-    }
-
-    public void setUploadUrl(String upload_url) {
-        this.upload_url = upload_url;
-    }
-
-    public String getUrl() {
-        return url;
-    }
-
-    public void setUrl(String url) {
-        this.url = url;
     }
 
     public String getZipballUrl() {
         return zipball_url;
     }
 
-    public void setZipballUrl(String zipballUrl) {
-        this.zipball_url = zipballUrl;
-    }
-
     public String getTarballUrl() {
         return tarball_url;
-    }
-
-    public void setTarballUrl(String tarballUrl) {
-        this.tarball_url = tarballUrl;
     }
 
     GHRelease wrap(GHRepository owner) {
@@ -195,7 +127,7 @@ public class GHRelease {
     public GHAsset uploadAsset(File file, String contentType) throws IOException {
         Requester builder = new Requester(owner.root);
 
-        String url = format("https://uploads.github.com%sreleases/%d/assets?name=%s",
+        String url = format("https://uploads.github.com%s/releases/%d/assets?name=%s",
                 owner.getApiTailUrl(""), getId(), file.getName());
         return builder.contentType(contentType)
                 .with(new FileInputStream(file))
@@ -216,6 +148,13 @@ public class GHRelease {
      */
     public void delete() throws IOException {
         new Requester(root).method("DELETE").to(owner.getApiTailUrl("releases/"+id));
+    }
+
+    /**
+     * Edit this release.
+     */
+    private void edit(String key, Object value) throws IOException {
+        new Requester(root)._with(key, value).method("PATCH").to(owner.getApiTailUrl("releases/"+id));
     }
 
     private String getApiTailUrl(String end) {

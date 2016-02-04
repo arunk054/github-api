@@ -9,8 +9,7 @@ are used in favor of using string handle (such as `GHUser.isMemberOf(GHOrganizat
 
 The library supports both github.com and GitHub Enterprise.
 
-There are some corners of the GitHub API that's not yet implemented, but
-the library is implemented with the right abstractions and libraries to make it very easy to improve the coverage.
+Most of the GitHub APIs are covered, although there are some corners that are still not yet implemented.
 
 Sample Usage
 -----
@@ -43,3 +42,10 @@ through `HttpConnector`. In particular, this means you can use [OkHttp](http://s
 so we can make use of it's HTTP response cache.
 Making a conditional request against the GitHub API and receiving a 304 response
 [does not count against the rate limit](http://developer.github.com/v3/#conditional-requests).
+
+The following code shows an example of how to set up persistent cache on the disk:
+
+    Cache cache = new Cache(cacheDirectory, 10 * 1024 * 1024); // 10MB cache
+    GitHub gitHub = GitHubBuilder.fromCredentials()
+        .withConnector(new OkHttpConnector(new OkUrlFactory(new OkHttpClient().setCache(cache))))
+        .build();

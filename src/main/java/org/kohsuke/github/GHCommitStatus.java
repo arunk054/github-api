@@ -1,21 +1,19 @@
 package org.kohsuke.github;
 
 import java.io.IOException;
+import java.net.URL;
 import java.util.Date;
 
 /**
  * Represents a status of a commit.
  *
  * @author Kohsuke Kawaguchi
- * @see GHRepository#getCommitStatus(String)
- * @see GHCommit#getStatus()
+ * @see GHRepository#getLastCommitStatus(String)
+ * @see GHCommit#getLastStatus()
  */
-public class GHCommitStatus {
-    String created_at, updated_at;
+public class GHCommitStatus extends GHObject {
     String state;
     String target_url,description;
-    int id;
-    String url;
     String context;
     GHUser creator;
 
@@ -25,14 +23,6 @@ public class GHCommitStatus {
         if (creator!=null)  creator.wrapUp(root);
         this.root = root;
         return this;
-    }
-
-    public Date getCreatedAt() {
-        return GitHub.parseDate(created_at);
-    }
-
-    public Date getUpdatedAt() {
-        return GitHub.parseDate(updated_at);
     }
 
     public GHCommitState getState() {
@@ -56,22 +46,19 @@ public class GHCommitStatus {
         return description;
     }
 
-    public int getId() {
-        return id;
-    }
-
-    /**
-     * API URL of this commit status.
-     */
-    public String getUrl() {
-        return url;
-    }
-
     public GHUser getCreator() {
         return creator;
     }
 
-	public String getContext() {
-		return context;
-	}
+    public String getContext() {
+        return context;
+    }
+
+    /**
+     * @deprecated This object has no HTML URL.
+     */
+    @Override
+    public URL getHtmlUrl() {
+        return null;
+    }
 }

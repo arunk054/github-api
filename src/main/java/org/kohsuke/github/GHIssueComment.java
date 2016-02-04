@@ -25,19 +25,16 @@ package org.kohsuke.github;
 
 import java.io.IOException;
 import java.net.URL;
-import java.util.Date;
 
 /**
  * Comment to the issue
  *
  * @author Kohsuke Kawaguchi
  */
-public class GHIssueComment {
+public class GHIssueComment extends GHObject {
     GHIssue owner;
 
-    private String body, gravatar_id, created_at, updated_at;
-    private URL url;
-    private int id;
+    private String body, gravatar_id;
     private GHUser user;
 
     /*package*/ GHIssueComment wrapUp(GHIssue owner) {
@@ -59,22 +56,6 @@ public class GHIssueComment {
         return body;
     }
 
-    public Date getCreatedAt() {
-        return GitHub.parseDate(created_at);
-    }
-
-    public Date getUpdatedAt() {
-        return GitHub.parseDate(updated_at);
-    }
-
-    public int getId() {
-        return id;
-    }
-
-    public URL getUrl() {
-        return url;
-    }
-
     /**
      * Gets the ID of the user who posted this comment.
      */
@@ -88,5 +69,32 @@ public class GHIssueComment {
      */
     public GHUser getUser() throws IOException {
         return owner.root.getUser(user.getLogin());
+    }
+    
+    /**
+     * @deprecated This object has no HTML URL.
+     */
+    @Override
+    public URL getHtmlUrl() {
+        return null;
+    }
+    
+    /**
+     * Updates the body of the issue comment.
+     */
+    public void update(String body) throws IOException {
+        new Requester(owner.root).with("body", body).method("PATCH").to(getApiRoute(), GHIssueComment.class);
+        this.body = body;
+    }
+
+    /**
+     * Deletes this issue comment.
+     */
+    public void delete() throws IOException {
+        new Requester(owner.root).method("DELETE").to(getApiRoute());
+    }
+    
+    private String getApiRoute() {
+        return "/repos/"+owner.getRepository().getOwnerName()+"/"+owner.getRepository().getName()+"/issues/comments/" + id;
     }
 }
